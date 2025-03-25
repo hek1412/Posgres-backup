@@ -1,0 +1,52 @@
+services:
+   postgres:
+    build: .
+    container_name: postgrestest
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD} 
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGHOST: ${PGHOST}
+      PGPORT: ${PGPORT}     
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_ENDPOINT: ${AWS_ENDPOINT}
+      AWS_REGION: ${AWS_REGION}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE}
+      PGDATA: /var/lib/postgresql/data/
+    ports:
+      - "35199:5432"
+    volumes:
+      - postgres-datatest:/var/lib/postgresql/data/
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres_db" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - monitoring-network
+      - jupyterhub-network
+  # pgbackup:
+  #   image: alpine
+  #   command: sh -c "while true; do docker exec postgrestest /usr/local/bin/backup.sh; sleep 60; done"
+  #   depends_on:
+  #     - postgres
+  #   restart: unless-stopped
+  #   networks:
+  #     - monitoring-network 
+volumes:
+  postgres-datatest:
+networks:
+  monitoring-network:
+    name: monitoring-network
+    external: true
+  jupyterhub-network:
+    name: jupyterhub-network
+    external: true
+
+
