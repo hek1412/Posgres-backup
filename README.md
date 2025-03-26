@@ -1,20 +1,20 @@
 # PostgreSQL с WAL-G для бэкапов в S3 яндекса
 
-Контейнеризованное решение PostgreSQL с установкой и настройкой WAL-G для резервного копирования БД в S3 яндекса.
+Одно из решений бэкапа PostgreSQL с использованием WAL-G для резервного копирования БД в S3 яндекса.
 Wal-g можно использовать в качестве инструмента для создания зашифрованных, сжатых резервных копий PostgreSQL (полных и инкрементных) и отправки/извлечения их в/из удаленных хранилищ без сохранения их в вашей файловой системе.
 В данном примере показан темстовый процесс с минимальным набором параметров.
 
 ## Основные особенности
-- Образ PostgreSQL 13 с предустановленным WAL-G 
+- Образ PostgreSQL 13 (и более) с предустановленным WAL-G 
 - Настроенный S3 хранилище для бэкапов
-- Автоматическая настройка WAL archiving
+- Автоматическая настройка WAL archiving в конфигурации postgres
 - Готовые скрипты для инициализации и бэкапов (позже будет отдельный образ для разворачивания с бэкапом)
 
 ## Обязательные шаги перед использованием
 
 1) Создать все переменные, как в образце .env
-2) Создать бакет в S3 яндекса (или любом другом, можно Minio на другом сервере) и создать сервисный аккаунт с ролью storage.editor
-3) Далее создаем статический ключ для этого аккаунта, сохраняем id и secret.
+2) Создать бакет в S3 yandex cloud (или любом другом, можно Minio на другом сервере) и создать сервисный аккаунт с ролью storage.editor
+3) Создать статический ключ для этого аккаунта, сохранить id и secret.
 
 ![image](https://github.com/user-attachments/assets/033e07a8-0ce3-4e50-94d2-f0e095a4cd7a)
 
@@ -53,6 +53,7 @@ docker compose up -d
 docker compose exec -it postgres psql -U postgres -d postgres_db -c "SHOW archive_mode;"
 ```
 ![image](https://github.com/user-attachments/assets/b9569131-6869-4b8e-8832-190ef7c43b23)
+Заходим в контейнер
 ```
 docker compose exec -it postgres psql -U postgres -d postgres_db
 ```
@@ -76,6 +77,7 @@ docker compose exec -it -u postgres postgres wal-g backup-push /var/lib/postgres
 docker compose exec -it postgres wal-g backup-list
 ```
 **Настройка cron**
+
 Добавляем в крон строку (скрипт будет выполняться раз в сутки в 03.00)
 ```
 0 3 * * * docker exec postgrestest /usr/local/bin/backup.sh >> /home/vitaliyaleks/cron.log 2>&1
@@ -87,24 +89,39 @@ docker compose exec -it postgres wal-g backup-list
 ## Порядок восстановления
 
 На текщий момент будет описана последовательность действий для восстановления, но в планах сделать готовый образ с автоматическим скриптом разворачивания.
-Основной особенностью, стоить отметить, необходимость остановки posgres и очистку директории.
-Изначально разворачиваем БД (например postgresbackup) с пустым томом, после останавливаем контейнер!!!
-Теперь нам необходимо запустить контейнер под пользователем с bash.  
+Основной особенностью, стоить отметить, необходимость остановки posgres и очистку директории (если тесты в пределах одного сервера, лучше удалить то и контейнер с которого делали бэкап).
+Можем взять тот же образ (предварительно закоментировав там используемые в первой части скрипты), повторяем все шаги.
+```
+postgresbackup/
+├── docker-compose.yaml 
+├── .env
+└── dockerfile
+```
+Изначально разворачиваем БД (например с именем postgresbackup) с пустым томом, зайдем внутрь, остановим postgres и после останавливаем контейнер!!!
+```
+docker compose exec -u postgres postgresbackup bash
+pg_ctl stop
+docker compose stop postgresbackup
+```
+Теперь нам необходимо запустить контейнер под пользователем postgres с оболочкой bash (можем дополнительно убедиться что процесов postgres нет `ps aux | grep postgres`).  
 ```
 docker compose run --rm -it -u postgres postgresbackup bash
 ```
-Внутри контейнера чистим директорию, проверяем, что все удалилось, заружаем последнюю версию бэкапа, создаем recovery.signal для инициализации процесса восстановления, выходим и делаем рестарт контейнеру, что бы была произведена инициализация бэкапа.
+Внутри контейнера чистим директорию, проверяем, что все удалилось, загружаем последнюю версию бэкапа, создаем recovery.signal для инициализации процесса восстановления, выходим и делаем рестарт контейнеру, что бы была произведена инициализация бэкапа.
 ```
 rm -rf /var/lib/postgresql/data/*
 ls -la /var/lib/postgresql/data
 wal-g backup-fetch /var/lib/postgresql/data LATEST
 touch /var/lib/postgresql/data/recovery.signal
-```
-![image](https://github.com/user-attachments/assets/1376b4f0-b276-4dc0-83ee-ff5103916e99)
-```
 exit
-docker compose restart postgresbackup
 ```
-После старта заходим в этот контейнер и проверяем наши данные)
-
+```
+docker compose start postgresbackup
+```
+После старта, заходим в этот контейнер и проверяем наши данные)
+```
+docker compose exec -it postgresbackup psql -U postgres -d postgres_db
+postgres_db=# SELECT * FROM test;
+```
+![image](https://github.com/user-attachments/assets/03aea22a-7fd2-4a05-b1fe-1dad92e3eb58)
 
